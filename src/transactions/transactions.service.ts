@@ -28,7 +28,9 @@ export class TransactionsService {
 
   /**
    * Newest-first history of everything that touched the wallet, using keyset
-   * pagination (stable under concurrent inserts, O(limit) per page).
+   * pagination on `seq` (O(limit) per page). Gap-free under concurrency
+   * because LedgerService locks the wallet before `seq` is drawn, so a
+   * wallet's rows become visible in `seq` order.
    */
   async listForWallet(
     walletId: string,

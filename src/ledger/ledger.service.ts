@@ -41,11 +41,15 @@ const balanceKey = (walletId: string, currency: Currency): string =>
  * The only component allowed to change balances. Every posting runs inside
  * the caller's database transaction and:
  *
- * 1. locks every affected balance row with SELECT … FOR UPDATE, always in
- *    (wallet_id, currency) order, so concurrent postings serialise per
- *    balance and two opposite transfers can never deadlock;
- * 2. re-checks funds against the locked (therefore current) values;
- * 3. writes the transaction, the new balances and one journal entry per leg.
+ * 1. locks every affected wallet row, in id order, until commit, so postings
+ *    serialise per wallet. `seq` is drawn after this lock, which makes seq
+ *    order equal commit order for any one wallet: history pagination can
+ *    never page past a row that commits late;
+ * 2. locks every affected balance row with SELECT … FOR UPDATE, always in
+ *    (wallet_id, currency) order. Every posting takes wallets, then
+ *    balances, each in a fixed order, so opposite transfers never deadlock;
+ * 3. re-checks funds against the locked (therefore current) values;
+ * 4. writes the transaction, the new balances and one journal entry per leg.
  */
 @Injectable()
 export class LedgerService {
@@ -53,6 +57,7 @@ export class LedgerService {
     manager: EntityManager,
     request: PostingRequest,
   ): Promise<TransactionEntity> {
+    await this.lockWallets(manager, request.legs);
     const balances = await this.lockBalances(manager, request.legs);
 
     const updates = new Map<string, { walletId: string; next: Money }>();
@@ -114,6 +119,28 @@ export class LedgerService {
     );
 
     return transaction;
+  }
+
+  /**
+   * FOR NO KEY UPDATE serialises postings on the same wallet without
+   * blocking the FOR KEY SHARE locks that foreign-key checks take.
+   */
+  private async lockWallets(
+    manager: EntityManager,
+    legs: LedgerLeg[],
+  ): Promise<void> {
+    const ids = [...new Set(legs.map((l) => l.walletId))];
+    const rows: { id: string }[] = await manager.query(
+      `SELECT id FROM wallets
+        WHERE id = ANY($1::uuid[])
+        ORDER BY id
+          FOR NO KEY UPDATE`,
+      [ids],
+    );
+    const found = new Set(rows.map((r) => r.id));
+    for (const id of ids) {
+      if (!found.has(id)) throw new WalletNotFoundError(id);
+    }
   }
 
   private async lockBalances(

@@ -6,7 +6,7 @@
 
 ```text
 docker compose up --build     # API on :3000, Swagger UI on :3000/docs
-yarn test                     # 127 unit + e2e tests against real Postgres & Redis
+yarn test                     # 128 unit + e2e tests against real Postgres & Redis
 ```
 
 ---
@@ -124,7 +124,7 @@ yarn test:cov     # with coverage
 - To use existing instances instead (for example CI services), set `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
 - E2E tests use a **fixed rate table** (`FX_PROVIDER=static`), so results are deterministic and no network access is needed.
 
-What is covered (127 tests):
+What is covered (128 tests):
 
 | Area | Highlights |
 | --- | --- |
@@ -134,7 +134,7 @@ What is covered (127 tests):
 | Deposits | Replay returns the same response with no double credit; key reuse with a different payload → 422; **10 concurrent duplicates → credited once**; 20 parallel `0.1` deposits sum to exactly `2.000000` |
 | Swaps | Exact conversions and rounding; overdraft → 422 with details; **10 concurrent swaps on one balance never overdraw** |
 | Transfers | Same and cross currency; **30 simultaneous opposite-direction transfers, no deadlock, no lost update** |
-| History | Newest first, every filter, cursor pagination with no gaps or duplicates; tampered cursors rejected |
+| History | Newest first, every filter, cursor pagination with no gaps or duplicates; tampered cursors rejected; a posting held open blocks a later one on the same wallet (even in another currency), so pages can never skip a late commit |
 | Idempotency | Replays skip FX quoting and the database transaction entirely; a failed plan claims no key; keys replay inside the TTL, are reusable after it, and the purge removes only expired keys |
 | Errors | Malformed JSON, unknown routes and unsafe `x-request-id` values all produce the standard envelope |
 | Rate limiting | Budget headers, `429 RATE_LIMITED` with `Retry-After`, tighter write budget, per-client isolation, `/health` exempt, fail-open when Redis is down |
@@ -502,9 +502,10 @@ Every money-moving `POST` takes an `Idempotency-Key`. Keys are scoped per operat
 The `LedgerService` (`src/ledger/ledger.service.ts`) is the **only code that changes balances**. Each posting:
 
 1. Runs inside the request's database transaction (READ COMMITTED).
-2. Locks every affected balance row with `SELECT … FOR UPDATE`, **always ordered by `(wallet_id, currency)`**. Postgres takes the row locks in that sorted order, so two transfers in opposite directions (A→B and B→A) request their locks in the same order and **cannot deadlock**. Tested with 30 simultaneous opposite-direction transfers.
-3. **Re-checks funds against the locked values.** After waiting for a lock it sees the latest committed balance, so the classic "check, then someone else spends, then debit" race cannot overdraw. Tested with 10 concurrent swaps and transfers on one balance: exactly the affordable number succeed.
-4. Writes the transaction, the new balances (incrementing `version`) and one journal entry per leg.
+2. Locks every affected **wallet** row (`FOR NO KEY UPDATE`, ordered by id) until commit. `transactions.seq` is drawn *after* this lock, so for any one wallet **`seq` order equals commit order**. Without it, a cNGN deposit and a cGHS deposit on the same wallet lock different balance rows and can commit out of `seq` order; a client paging history newest-first at that moment would step past the late row and never see it. Tested by holding one posting open and proving a second (other-currency) posting on the same wallet waits for it.
+3. Locks every affected balance row with `SELECT … FOR UPDATE`, **always ordered by `(wallet_id, currency)`**. Postgres takes the row locks in that sorted order, so two transfers in opposite directions (A→B and B→A) request their locks in the same order and **cannot deadlock**. Tested with 30 simultaneous opposite-direction transfers.
+4. **Re-checks funds against the locked values.** After waiting for a lock it sees the latest committed balance, so the classic "check, then someone else spends, then debit" race cannot overdraw. Tested with 10 concurrent swaps and transfers on one balance: exactly the affordable number succeed.
+5. Writes the transaction, the new balances (incrementing `version`) and one journal entry per leg.
 
 Backstops: `CHECK (amount >= 0)` on balances and `CHECK (balance_after >= 0)` on the journal. Wallet uniqueness relies on partial unique indexes rather than a "check then insert" (tested with 8 concurrent sign-ups).
 
@@ -586,7 +587,7 @@ Design choices:
 | Full double-entry with system accounts | Model a treasury/liquidity wallet per currency so *every* posting balances to zero across accounts, including deposits and swaps. The journal and the `LedgerService` interface were designed with this in mind. |
 | Withdrawals, reversals, statuses | Only `COMPLETED` exists today. I'd add `PENDING`/`FAILED`/`REVERSED` with compensating entries, plus withdrawals. |
 | Outbox and webhooks | A transactional outbox table plus a BullMQ worker to publish `transaction.completed` events and notify users reliably. |
-| Hot-wallet contention | Row locks serialise per balance, which is correct but caps throughput for a single very hot wallet. At scale I'd look at sharded sub-balances or batched postings. |
+| Hot-wallet contention | Postings serialise per wallet (the price of gap-free history ordering), which is correct but caps throughput for a single very hot wallet. At scale I'd look at sharded sub-balances or batched postings. |
 | Stale-rate policy | Swaps are allowed on `last-known-good` rates and the staleness is recorded. With more time I'd add a maximum-age policy (for example, reject swaps if rates are older than N minutes) and a second live provider before falling back to snapshots. |
 | Observability | Today: an access log line per request (method, path, status, latency, `x-request-id`) and a validated `LOG_LEVEL`. Next: structured JSON logs (pino), Prometheus metrics (posting latency, lock wait, FX source mix), OpenTelemetry tracing, Bull Board for the queue. |
 | Recipient lookup | Send by email or phone (resolving to a wallet ID), with a confirmation step showing the recipient. |
