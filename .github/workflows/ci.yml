@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: |
+          corepack enable
+          yarn install --frozen-lockfile
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Format
+        run: yarn format:check
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Build
+        run: yarn build
+
+      # Unit + e2e; e2e boots Postgres and Redis with Testcontainers.
+      - name: Test
+        run: yarn test
+
+      - name: OpenAPI spec is up to date
+        run: |
+          yarn openapi:export
+          git diff --exit-code docs/openapi.json
