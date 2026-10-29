@@ -1,0 +1,54 @@
+name: harmattan
+
+services:
+  api:
+    build: .
+    ports:
+      - '${API_PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://harmattan:harmattan@postgres:5432/harmattan
+      REDIS_URL: redis://redis:6379
+      DB_RUN_MIGRATIONS: 'true'
+      FX_PROVIDER: ${FX_PROVIDER:-live}
+      FX_REFRESH_INTERVAL_SECONDS: ${FX_REFRESH_INTERVAL_SECONDS:-300}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: harmattan
+      POSTGRES_PASSWORD: harmattan
+      POSTGRES_DB: harmattan
+    ports:
+      - '${POSTGRES_PORT:-5433}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U harmattan -d harmattan']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6380}:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:
