@@ -22,11 +22,16 @@ import type { IdempotentResult } from '../idempotency/idempotency.service';
 import { TransactionResponseDto } from '../transactions/dto/transaction.response';
 import { DepositsService } from './deposits.service';
 import { DepositDto } from './dto/deposit.dto';
+import { SwapDto } from './dto/swap.dto';
+import { SwapsService } from './swaps.service';
 
 @ApiTags('Payments')
 @Controller('wallets/:walletId')
 export class PaymentsController {
-  constructor(private readonly deposits: DepositsService) {}
+  constructor(
+    private readonly deposits: DepositsService,
+    private readonly swaps: SwapsService,
+  ) {}
 
   @Post('deposits')
   @ApiOperation({
@@ -47,6 +52,26 @@ export class PaymentsController {
       res,
       await this.deposits.deposit(walletId, dto, idempotencyKey),
     );
+  }
+
+  @Post('swaps')
+  @ApiOperation({
+    summary: 'Swap one stablecoin for another inside the wallet',
+    description:
+      'Converts at the current FX rate (12 dp, half-even), rounding the bought ' +
+      'amount down to 6 dp. Rejected with 422 INSUFFICIENT_FUNDS if the source ' +
+      'balance would go negative. The rate applied is recorded on the transaction.',
+  })
+  @ApiIdempotent()
+  @ApiCreatedResponse({ type: TransactionResponseDto })
+  @ApiNotFoundResponse({ description: 'WALLET_NOT_FOUND' })
+  async swap(
+    @Param('walletId', ParseUUIDPipe) walletId: string,
+    @Body() dto: SwapDto,
+    @IdempotencyKey() idempotencyKey: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TransactionResponseDto> {
+    return respond(res, await this.swaps.swap(walletId, dto, idempotencyKey));
   }
 }
 
