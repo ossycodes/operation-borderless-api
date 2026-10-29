@@ -6,6 +6,7 @@ import { HealthController } from './health/health.controller';
 import { PaymentsModule } from './payments/payments.module';
 import { QueueModule } from './queue/queue.module';
 import { RedisModule } from './redis/redis.module';
+import { TransactionsModule } from './transactions/transactions.module';
 import { WalletsModule } from './wallets/wallets.module';
 
 @Module({
@@ -17,6 +18,7 @@ import { WalletsModule } from './wallets/wallets.module';
     FxModule,
     WalletsModule,
     PaymentsModule,
+    TransactionsModule,
   ],
   controllers: [HealthController],
 })
