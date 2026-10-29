@@ -72,6 +72,15 @@ export class EnvironmentVariables {
   @IsIn(LOG_LEVELS)
   LOG_LEVEL: LogLevel = 'log';
 
+  /** How long a stored Idempotency-Key is honoured (Stripe uses 24 h). */
+  @IsInt()
+  @Min(1)
+  @Max(720)
+  IDEMPOTENCY_KEY_TTL_HOURS: number = 24;
+
+  @IsBoolean()
+  IDEMPOTENCY_PURGE_JOB_ENABLED: boolean = true;
+
   /** Fixed window shared by both rate limits. */
   @IsInt()
   @Min(1)
@@ -104,6 +113,7 @@ const toBoolean = (value: unknown): unknown => {
 const BOOLEAN_KEYS: (keyof EnvironmentVariables)[] = [
   'DB_RUN_MIGRATIONS',
   'FX_REFRESH_JOB_ENABLED',
+  'IDEMPOTENCY_PURGE_JOB_ENABLED',
 ];
 
 export function validateEnv(

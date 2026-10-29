@@ -46,6 +46,13 @@ export class AppConfigService {
     return this.get('TRUST_PROXY_HOPS');
   }
 
+  get idempotency() {
+    return {
+      keyTtlHours: this.get('IDEMPOTENCY_KEY_TTL_HOURS'),
+      purgeJobEnabled: this.get('IDEMPOTENCY_PURGE_JOB_ENABLED'),
+    };
+  }
+
   get rateLimit() {
     return {
       windowSeconds: this.get('RATE_LIMIT_WINDOW_SECONDS'),

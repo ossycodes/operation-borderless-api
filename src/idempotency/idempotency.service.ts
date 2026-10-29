@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { BusinessRuleError } from '../common/errors/domain.error';
+import { AppConfigService } from '../config/app-config.service';
 import { isPgError, PgErrorCode } from '../database/pg-errors';
 import { IdempotencyKeyEntity } from './idempotency-key.entity';
 
@@ -56,7 +57,9 @@ export interface IdempotentOperation<T, P> {
  *   proceeds as if it were first);
  * - a crash can never leave "money moved but key not stored" or vice versa;
  * - failed attempts (e.g. insufficient funds) store nothing, so the client
- *   may retry the same key once the cause is fixed.
+ *   may retry the same key once the cause is fixed;
+ * - keys expire after IDEMPOTENCY_KEY_TTL_HOURS: an expired key counts as
+ *   unused and is re-claimed in the same transaction as the new posting.
  */
 @Injectable()
 export class IdempotencyService {
@@ -64,6 +67,7 @@ export class IdempotencyService {
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(IdempotencyKeyEntity)
     private readonly keys: Repository<IdempotencyKeyEntity>,
+    private readonly config: AppConfigService,
   ) {}
 
   async execute<T, P>(
@@ -74,12 +78,25 @@ export class IdempotencyService {
     const { scope, key } = context;
 
     const existing = await this.keys.findOne({ where: { scope, key } });
-    if (existing) return this.replay<T>(existing, requestHash);
+    if (existing && !this.isExpired(existing)) {
+      return this.replay<T>(existing, requestHash);
+    }
 
     const prepared = await operation.prepare();
 
     try {
       return await this.dataSource.transaction(async (manager) => {
+        if (existing) {
+          // Expired: release it so the INSERT below can claim it again. A
+          // concurrent re-claim blocks on this row and then hits the primary
+          // key, exactly like any other concurrent duplicate.
+          await manager.query(
+            `DELETE FROM idempotency_keys
+              WHERE scope = $1 AND key = $2
+                AND created_at < now() - make_interval(hours => $3)`,
+            [scope, key, this.ttlHours],
+          );
+        }
         await manager.insert(IdempotencyKeyEntity, {
           scope,
           key,
@@ -115,6 +132,36 @@ export class IdempotencyService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Deletes expired keys in small batches, so the purge never holds locks
+   * on a large part of the table. Returns how many keys were removed.
+   */
+  async purgeExpired(batchSize = 1000): Promise<number> {
+    let total = 0;
+    for (;;) {
+      // A raw DELETE resolves to [rows, rowCount] with the pg driver.
+      const [, deleted] = await this.dataSource.query<[unknown[], number]>(
+        `DELETE FROM idempotency_keys
+          WHERE ctid IN (
+            SELECT ctid FROM idempotency_keys
+             WHERE created_at < now() - make_interval(hours => $1)
+             LIMIT $2
+          )`,
+        [this.ttlHours, batchSize],
+      );
+      total += deleted;
+      if (deleted < batchSize) return total;
+    }
+  }
+
+  private get ttlHours(): number {
+    return this.config.idempotency.keyTtlHours;
+  }
+
+  private isExpired(stored: IdempotencyKeyEntity): boolean {
+    return stored.createdAt.getTime() + this.ttlHours * 3_600_000 <= Date.now();
   }
 
   private replay<T>(

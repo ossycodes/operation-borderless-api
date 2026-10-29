@@ -6,7 +6,7 @@
 
 ```text
 docker compose up --build     # API on :3000, Swagger UI on :3000/docs
-yarn test                     # 123 unit + e2e tests against real Postgres & Redis
+yarn test                     # 127 unit + e2e tests against real Postgres & Redis
 ```
 
 ---
@@ -124,7 +124,7 @@ yarn test:cov     # with coverage
 - To use existing instances instead (for example CI services), set `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
 - E2E tests use a **fixed rate table** (`FX_PROVIDER=static`), so results are deterministic and no network access is needed.
 
-What is covered (123 tests):
+What is covered (127 tests):
 
 | Area | Highlights |
 | --- | --- |
@@ -135,7 +135,7 @@ What is covered (123 tests):
 | Swaps | Exact conversions and rounding; overdraft → 422 with details; **10 concurrent swaps on one balance never overdraw** |
 | Transfers | Same and cross currency; **30 simultaneous opposite-direction transfers, no deadlock, no lost update** |
 | History | Newest first, every filter, cursor pagination with no gaps or duplicates; tampered cursors rejected |
-| Idempotency | Replays skip FX quoting and the database transaction entirely; a failed plan claims no key |
+| Idempotency | Replays skip FX quoting and the database transaction entirely; a failed plan claims no key; keys replay inside the TTL, are reusable after it, and the purge removes only expired keys |
 | Errors | Malformed JSON, unknown routes and unsafe `x-request-id` values all produce the standard envelope |
 | Rate limiting | Budget headers, `429 RATE_LIMITED` with `Retry-After`, tighter write budget, per-client isolation, `/health` exempt, fail-open when Redis is down |
 | Ledger invariant | After every scenario, *sum of journal entries = stored balance* for every currency |
@@ -466,7 +466,7 @@ erDiagram
 - **`wallet_balances`**: one row per wallet and currency, created when the wallet is created. This is the hot row that gets locked.
 - **`transactions`**: one immutable row per business event. `CHECK` constraints enforce each type's shape: a deposit has no source, a swap is within one wallet between different currencies and must carry a rate, and a transfer is between two different wallets.
 - **`ledger_entries`**: an append-only journal with signed movements and `balance_after`. Reconciliation invariant: `SUM(amount)` per (wallet, currency) = `wallet_balances.amount`. The test suite checks this after each money-moving scenario.
-- **`idempotency_keys`**: the stored response for each (scope, key) pair.
+- **`idempotency_keys`**: the stored response for each (scope, key) pair, kept for `IDEMPOTENCY_KEY_TTL_HOURS` (default 24 h). Indexed on `created_at` for the purge job.
 - **`fx_rate_snapshots`**: every successful provider fetch. It doubles as the fallback source and an audit trail of the rates used.
 
 ---
@@ -495,6 +495,7 @@ Every money-moving `POST` takes an `Idempotency-Key`. Keys are scoped per operat
 4. **Failures are not stored.** If a swap fails with `INSUFFICIENT_FUNDS`, everything rolls back, including the key. The client can top up and **retry with the same key**.
 5. Replays return the original status code and body plus `Idempotent-Replayed: true`.
 6. **Replays never re-plan.** The key is checked *before* the FX quote is fetched, so a retry returns the stored response even if rates have since moved (it can never flip to `AMOUNT_TOO_SMALL`, for example), and costs one indexed read.
+7. **Keys expire after 24 hours** (`IDEMPOTENCY_KEY_TTL_HOURS`), the same window Stripe uses. An expired key counts as unused: it is deleted and claimed again *inside* the new operation's transaction, so a concurrent re-claim still resolves through the primary key like any other duplicate. A BullMQ job purges expired keys hourly (once per cluster, in batches of 1,000 to keep locks short). Correctness never depends on the purge; it only stops the table growing forever. The transaction keeps its `idempotency_key` column for audit.
 
 ### Concurrency
 
@@ -547,7 +548,7 @@ src/
 │                                #   Redis cache, BullMQ refresh job, GET /fx/rates
 ├── wallets/                     # wallet creation, balances, USD valuation
 ├── ledger/                      # transactions + journal entities, LedgerService (sole balance writer)
-├── idempotency/                 # exactly-once executor + Idempotency-Key decorator
+├── idempotency/                 # exactly-once executor, Idempotency-Key decorator, expiry purge job
 ├── payments/                    # use cases: deposits, swaps, transfers (one service each)
 │                                #   + PaymentProcessor (shared idempotent posting template)
 └── transactions/                # read side: history + lookup
@@ -584,7 +585,6 @@ Design choices:
 | Fees and spread | Add a configurable spread per pair, posted to a revenue account. |
 | Full double-entry with system accounts | Model a treasury/liquidity wallet per currency so *every* posting balances to zero across accounts, including deposits and swaps. The journal and the `LedgerService` interface were designed with this in mind. |
 | Withdrawals, reversals, statuses | Only `COMPLETED` exists today. I'd add `PENDING`/`FAILED`/`REVERSED` with compensating entries, plus withdrawals. |
-| Idempotency key expiry | Keys are kept forever. I'd add a TTL (for example 24–72 h) with a scheduled cleanup job. |
 | Outbox and webhooks | A transactional outbox table plus a BullMQ worker to publish `transaction.completed` events and notify users reliably. |
 | Hot-wallet contention | Row locks serialise per balance, which is correct but caps throughput for a single very hot wallet. At scale I'd look at sharded sub-balances or batched postings. |
 | Stale-rate policy | Swaps are allowed on `last-known-good` rates and the staleness is recorded. With more time I'd add a maximum-age policy (for example, reject swaps if rates are older than N minutes) and a second live provider before falling back to snapshots. |
