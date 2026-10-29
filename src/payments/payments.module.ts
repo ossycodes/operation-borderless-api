@@ -3,6 +3,7 @@ import { FxModule } from '../fx/fx.module';
 import { IdempotencyModule } from '../idempotency/idempotency.module';
 import { LedgerModule } from '../ledger/ledger.module';
 import { DepositsService } from './deposits.service';
+import { PaymentProcessor } from './payment-processor';
 import { PaymentsController } from './payments.controller';
 import { SwapsService } from './swaps.service';
 import { TransfersService } from './transfers.service';
@@ -11,6 +12,11 @@ import { TransfersService } from './transfers.service';
 @Module({
   imports: [LedgerModule, IdempotencyModule, FxModule],
   controllers: [PaymentsController],
-  providers: [DepositsService, SwapsService, TransfersService],
+  providers: [
+    PaymentProcessor,
+    DepositsService,
+    SwapsService,
+    TransfersService,
+  ],
 })
 export class PaymentsModule {}
