@@ -2,6 +2,7 @@ import { CreateFxRateSnapshots1793260000000 } from './1793260000000-CreateFxRate
 import { CreateWallets1793260100000 } from './1793260100000-CreateWallets';
 import { CreateLedger1793260200000 } from './1793260200000-CreateLedger';
 import { CreateIdempotencyKeys1793260300000 } from './1793260300000-CreateIdempotencyKeys';
+import { IndexIdempotencyKeysCreatedAt1793260400000 } from './1793260400000-IndexIdempotencyKeysCreatedAt';
 
 /**
  * Explicit, ordered migration list. Registering classes (rather than a file
@@ -12,4 +13,5 @@ export const MIGRATIONS = [
   CreateWallets1793260100000,
   CreateLedger1793260200000,
   CreateIdempotencyKeys1793260300000,
+  IndexIdempotencyKeysCreatedAt1793260400000,
 ];

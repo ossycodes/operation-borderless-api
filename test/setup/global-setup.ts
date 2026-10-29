@@ -34,6 +34,7 @@ export default async function globalSetup(): Promise<void> {
     // Deterministic rates; no network in tests.
     FX_PROVIDER: 'static',
     FX_REFRESH_JOB_ENABLED: 'false',
+    IDEMPOTENCY_PURGE_JOB_ENABLED: 'false',
     // Concurrency suites fire hundreds of requests from one IP; the rate
     // limiter itself is exercised in rate-limit.e2e-spec.ts.
     RATE_LIMIT_MAX_REQUESTS: '1000000',

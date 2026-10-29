@@ -1,4 +1,5 @@
 import { DataSource, EntityManager, Repository } from 'typeorm';
+import { AppConfigService } from '../config/app-config.service';
 import { IdempotencyKeyEntity } from './idempotency-key.entity';
 import {
   fingerprint,
@@ -48,13 +49,24 @@ function build(existing: Partial<IdempotencyKeyEntity> | null) {
         work(manager as unknown as EntityManager),
     ),
   };
-  const keys = { findOne: jest.fn().mockResolvedValue(existing) };
+  const keys = {
+    findOne: jest
+      .fn()
+      .mockResolvedValue(existing && { createdAt: new Date(), ...existing }),
+  };
+  const config = {
+    idempotency: { keyTtlHours: 24 },
+  } as unknown as AppConfigService;
   const service = new IdempotencyService(
     dataSource as unknown as DataSource,
     keys as unknown as Repository<IdempotencyKeyEntity>,
+    config,
   );
   return { service, manager, dataSource };
 }
+
+const hoursAgo = (hours: number): Date =>
+  new Date(Date.now() - hours * 3_600_000);
 
 describe('IdempotencyService.execute', () => {
   it('prepares outside the transaction, then runs inside the one that claims the key', async () => {
@@ -91,6 +103,45 @@ describe('IdempotencyService.execute', () => {
     expect(prepare).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
     expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('still replays a key just inside its TTL', async () => {
+    const { service } = build({
+      key: context.key,
+      requestHash: fingerprint(context.request),
+      responseStatus: 201,
+      responseBody: outcome.body,
+      createdAt: hoursAgo(23.9),
+    });
+
+    await expect(
+      service.execute(context, { prepare: jest.fn(), run: jest.fn() }),
+    ).resolves.toMatchObject({ replayed: true });
+  });
+
+  it('treats an expired key as unused: releases it, then claims it again', async () => {
+    const { service, manager } = build({
+      key: context.key,
+      // Even a different payload is fine once the key has expired.
+      requestHash: fingerprint({ walletId: 'wallet-1', amount: '99' }),
+      createdAt: hoursAgo(25),
+    });
+    const prepare = jest.fn().mockResolvedValue('fresh-quote');
+    const run = jest.fn().mockResolvedValue(outcome);
+
+    const result = await service.execute(context, { prepare, run });
+
+    expect(result).toEqual({ ...outcome, replayed: false });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    const [releaseSql, releaseParams] = manager.query.mock.calls[0] as [
+      string,
+      unknown[],
+    ];
+    expect(releaseSql).toMatch(/DELETE FROM idempotency_keys/);
+    expect(releaseParams).toEqual([context.scope, context.key, 24]);
+    expect(manager.query.mock.invocationCallOrder[0]).toBeLessThan(
+      manager.insert.mock.invocationCallOrder[0],
+    );
   });
 
   it('rejects a reused key carrying a different payload', async () => {
