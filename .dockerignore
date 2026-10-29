@@ -6,4 +6,4 @@ coverage
 *.pdf
 *.log
 test
-docs
+docs/openapi.json
