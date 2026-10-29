@@ -82,11 +82,26 @@ export class WalletsService {
 
   async getWallet(walletId: string): Promise<WalletView> {
     const wallet = await this.getOrFail(walletId);
-    return { wallet, portfolio: await this.getBalances(walletId) };
+    return { wallet, portfolio: await this.portfolio(walletId) };
   }
 
   async getBalances(walletId: string): Promise<WalletBalancesView> {
     await this.getOrFail(walletId);
+    return this.portfolio(walletId);
+  }
+
+  async getOrFail(
+    walletId: string,
+    manager?: EntityManager,
+  ): Promise<WalletEntity> {
+    const repo = manager ? manager.getRepository(WalletEntity) : this.wallets;
+    const wallet = await repo.findOne({ where: { id: walletId } });
+    if (!wallet) throw new WalletNotFoundError(walletId);
+    return wallet;
+  }
+
+  /** Balances valued in USD; the caller has already checked the wallet exists. */
+  private async portfolio(walletId: string): Promise<WalletBalancesView> {
     const [rows, rates] = await Promise.all([
       this.balances.find({ where: { walletId } }),
       this.fxRates.getRates(),
@@ -110,15 +125,5 @@ export class WalletsService {
       rateSource: rates.source,
       ratesAsOf: rates.asOf,
     };
-  }
-
-  async getOrFail(
-    walletId: string,
-    manager?: EntityManager,
-  ): Promise<WalletEntity> {
-    const repo = manager ? manager.getRepository(WalletEntity) : this.wallets;
-    const wallet = await repo.findOne({ where: { id: walletId } });
-    if (!wallet) throw new WalletNotFoundError(walletId);
-    return wallet;
   }
 }
