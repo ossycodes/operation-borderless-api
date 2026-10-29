@@ -19,7 +19,7 @@ export abstract class DomainError extends Error {
 }
 
 export class NotFoundError extends DomainError {
-  readonly code = 'NOT_FOUND';
+  readonly code: string = 'NOT_FOUND';
   readonly httpStatus = HttpStatus.NOT_FOUND;
 }
 

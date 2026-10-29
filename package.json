@@ -22,7 +22,9 @@
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:run": "yarn typeorm migration:run",
     "migration:revert": "yarn typeorm migration:revert",
-    "migration:create": "typeorm-ts-node-commonjs migration:create"
+    "migration:create": "typeorm-ts-node-commonjs migration:create",
+    "test:unit": "node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js --selectProjects unit",
+    "test:e2e": "node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js --selectProjects e2e"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",
@@ -72,21 +74,54 @@
     "typescript-eslint": "^8.20.0"
   },
   "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
+    "projects": [
+      {
+        "moduleFileExtensions": [
+          "js",
+          "json",
+          "ts"
+        ],
+        "transform": {
+          "^.+\\.ts$": "ts-jest"
+        },
+        "testEnvironment": "node",
+        "displayName": "unit",
+        "rootDir": ".",
+        "roots": [
+          "<rootDir>/src"
+        ],
+        "testRegex": "\\.spec\\.ts$"
+      },
+      {
+        "moduleFileExtensions": [
+          "js",
+          "json",
+          "ts"
+        ],
+        "transform": {
+          "^.+\\.ts$": "ts-jest"
+        },
+        "testEnvironment": "node",
+        "displayName": "e2e",
+        "rootDir": ".",
+        "roots": [
+          "<rootDir>/test"
+        ],
+        "testRegex": "\\.e2e-spec\\.ts$",
+        "globalSetup": "<rootDir>/test/setup/global-setup.ts",
+        "globalTeardown": "<rootDir>/test/setup/global-teardown.ts",
+        "setupFilesAfterEnv": [
+          "<rootDir>/test/setup/jest.setup.ts"
+        ]
+      }
     ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
+    "coverageDirectory": "coverage",
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+      "src/**/*.ts",
+      "!src/**/*.spec.ts",
+      "!src/main.ts",
+      "!src/database/migrations/**"
+    ]
   },
   "engines": {
     "node": ">=24"

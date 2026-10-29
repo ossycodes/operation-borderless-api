@@ -5,6 +5,7 @@ import { FxModule } from './fx/fx.module';
 import { HealthController } from './health/health.controller';
 import { QueueModule } from './queue/queue.module';
 import { RedisModule } from './redis/redis.module';
+import { WalletsModule } from './wallets/wallets.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { RedisModule } from './redis/redis.module';
     RedisModule,
     QueueModule,
     FxModule,
+    WalletsModule,
   ],
   controllers: [HealthController],
 })
