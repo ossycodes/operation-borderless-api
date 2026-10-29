@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { DomainError } from '../errors/domain.error';
+import { REQUEST_ID_HEADER } from '../middleware/request-id.middleware';
 
 export interface ErrorEnvelope {
   error: {
@@ -52,7 +53,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode,
       path: request.originalUrl,
       timestamp: new Date().toISOString(),
-      requestId: request.headers['x-request-id'] as string | undefined,
+      requestId: request.headers[REQUEST_ID_HEADER] as string | undefined,
     };
     response.status(statusCode).json(body);
   }

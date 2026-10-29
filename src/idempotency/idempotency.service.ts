@@ -35,6 +35,18 @@ export interface IdempotentResult<T> extends Outcome<T> {
 }
 
 /**
+ * A first-time operation, in two phases:
+ * - `prepare` runs outside any database transaction (e.g. fetching an FX
+ *   quote) and only when the key is new, so a replay never re-quotes and can
+ *   never fail on a condition that has changed since the original request;
+ * - `run` executes inside the transaction that also claims the key.
+ */
+export interface IdempotentOperation<T, P> {
+  prepare: () => Promise<P>;
+  run: (manager: EntityManager, prepared: P) => Promise<Outcome<T>>;
+}
+
+/**
  * Exactly-once execution for mutating operations.
  *
  * The key is claimed with an INSERT in the SAME database transaction as the
@@ -54,15 +66,17 @@ export class IdempotencyService {
     private readonly keys: Repository<IdempotencyKeyEntity>,
   ) {}
 
-  async execute<T>(
+  async execute<T, P>(
     context: IdempotencyContext,
-    work: (manager: EntityManager) => Promise<Outcome<T>>,
+    operation: IdempotentOperation<T, P>,
   ): Promise<IdempotentResult<T>> {
     const requestHash = fingerprint(context.request);
     const { scope, key } = context;
 
     const existing = await this.keys.findOne({ where: { scope, key } });
     if (existing) return this.replay<T>(existing, requestHash);
+
+    const prepared = await operation.prepare();
 
     try {
       return await this.dataSource.transaction(async (manager) => {
@@ -75,7 +89,7 @@ export class IdempotencyService {
           transactionId: null,
         });
 
-        const outcome = await work(manager);
+        const outcome = await operation.run(manager, prepared);
 
         await manager.query(
           `UPDATE idempotency_keys

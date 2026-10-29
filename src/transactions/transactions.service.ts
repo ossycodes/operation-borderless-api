@@ -1,7 +1,6 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
-import { DomainError, NotFoundError } from '../common/errors/domain.error';
 import {
   TransactionEntity,
   TransactionType,
@@ -16,33 +15,8 @@ import {
   WalletTransactionDto,
 } from './dto/transaction-page.response';
 import { TransactionResponseDto } from './dto/transaction.response';
-
-export class TransactionNotFoundError extends NotFoundError {
-  override readonly code = 'TRANSACTION_NOT_FOUND';
-
-  constructor(transactionId: string) {
-    super(`Transaction ${transactionId} was not found`, { transactionId });
-  }
-}
-
-export class InvalidCursorError extends DomainError {
-  readonly code = 'INVALID_CURSOR';
-  readonly httpStatus = HttpStatus.BAD_REQUEST;
-
-  constructor() {
-    super('cursor is malformed; use pageInfo.nextCursor from a previous page');
-  }
-}
-
-/** Opaque keyset cursor over the monotonic `seq` column. */
-export const TransactionCursor = {
-  encode: (seq: string): string => Buffer.from(seq).toString('base64url'),
-  decode: (cursor: string): string => {
-    const seq = Buffer.from(cursor, 'base64url').toString('utf8');
-    if (!/^[1-9]\d{0,18}$/.test(seq)) throw new InvalidCursorError();
-    return seq;
-  },
-};
+import { TransactionCursor } from './transaction-cursor';
+import { TransactionNotFoundError } from './transactions.errors';
 
 @Injectable()
 export class TransactionsService {

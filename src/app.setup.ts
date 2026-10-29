@@ -2,6 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
+import { requestLoggingMiddleware } from './common/middleware/request-logging.middleware';
 
 export const API_PREFIX = 'api/v1';
 
@@ -12,6 +13,7 @@ export const API_PREFIX = 'api/v1';
 export function configureApp(app: INestApplication): INestApplication {
   app.use(helmet());
   app.use(requestIdMiddleware);
+  app.use(requestLoggingMiddleware);
   app.setGlobalPrefix(API_PREFIX, { exclude: ['health'] });
   app.useGlobalPipes(
     new ValidationPipe({

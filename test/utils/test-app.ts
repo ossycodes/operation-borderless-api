@@ -17,7 +17,10 @@ export async function createTestApp(): Promise<INestApplication<App>> {
     logger: ['error'],
   });
   configureApp(app);
-  await app.init();
+  // Listen once on an ephemeral port. Otherwise supertest binds a fresh port
+  // per request, which floods the server with listeners under the
+  // concurrency tests (MaxListenersExceededWarning).
+  await app.listen(0);
   return app;
 }
 

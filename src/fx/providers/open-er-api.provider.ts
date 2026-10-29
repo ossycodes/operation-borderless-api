@@ -22,6 +22,7 @@ interface OpenErApiResponse {
 @Injectable()
 export class OpenErApiProvider implements FxRateProvider {
   readonly name = 'open.er-api.com';
+  readonly source = 'live';
 
   constructor(private readonly config: AppConfigService) {}
 

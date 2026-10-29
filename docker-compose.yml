@@ -11,6 +11,7 @@ services:
       DATABASE_URL: postgres://harmattan:harmattan@postgres:5432/harmattan
       REDIS_URL: redis://redis:6379
       DB_RUN_MIGRATIONS: 'true'
+      LOG_LEVEL: ${LOG_LEVEL:-log}
       FX_PROVIDER: ${FX_PROVIDER:-live}
       FX_API_URL: ${FX_API_URL:-https://open.er-api.com/v6/latest/USD}
       FX_REFRESH_INTERVAL_SECONDS: ${FX_REFRESH_INTERVAL_SECONDS:-300}

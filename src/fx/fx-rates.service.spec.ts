@@ -1,7 +1,6 @@
 import { Repository } from 'typeorm';
 import { Currency } from '../common/money/currency';
 import { AppConfigService } from '../config/app-config.service';
-import { FxProviderKind } from '../config/env.validation';
 import { FxRateCache } from './fx-rate.cache';
 import { FxRateSnapshotEntity } from './fx-rate-snapshot.entity';
 import { crossRate, FxRatesService } from './fx-rates.service';
@@ -39,7 +38,7 @@ function build(options: {
       .mockResolvedValue(options.snapshot ? [options.snapshot] : []),
   };
   const config = {
-    fx: { provider: FxProviderKind.Live, cacheTtlSeconds: 300 },
+    fx: { cacheTtlSeconds: 300 },
   } as unknown as AppConfigService;
 
   const service = new FxRatesService(
@@ -54,10 +53,12 @@ function build(options: {
 
 const failing: FxRateProvider = {
   name: 'down',
+  source: 'live',
   fetchUsdRates: () => Promise.reject(new FxProviderError('timeout')),
 };
 const healthy: FxRateProvider = {
   name: 'test-live',
+  source: 'live',
   fetchUsdRates: () => Promise.resolve({ ...LIVE_TABLE }),
 };
 
@@ -66,7 +67,7 @@ describe('FxRatesService', () => {
     const fetchUsdRates = jest.fn();
     const cached = { ...LIVE_TABLE, source: 'live', stale: false } as const;
     const { service } = build({
-      primary: { name: 'p', fetchUsdRates },
+      primary: { name: 'p', source: 'live', fetchUsdRates },
       cached,
     });
 
@@ -82,6 +83,16 @@ describe('FxRatesService', () => {
     expect(rates).toMatchObject({ source: 'live', stale: false });
     expect(snapshots.insert).toHaveBeenCalledTimes(1);
     expect(cache.set).toHaveBeenCalledWith(rates, 300);
+  });
+
+  it('labels rates with the source the primary provider declares', async () => {
+    const { service } = build({ primary: new StaticRateProvider() });
+
+    await expect(service.getRates()).resolves.toMatchObject({
+      source: 'static',
+      stale: false,
+      rates: STATIC_USD_RATES,
+    });
   });
 
   it('falls back to the last-known-good snapshot when the provider fails', async () => {
@@ -121,7 +132,9 @@ describe('FxRatesService', () => {
 
   it('collapses concurrent cache misses into a single provider call', async () => {
     const fetchUsdRates = jest.fn().mockResolvedValue({ ...LIVE_TABLE });
-    const { service } = build({ primary: { name: 'p', fetchUsdRates } });
+    const { service } = build({
+      primary: { name: 'p', source: 'live', fetchUsdRates },
+    });
 
     await Promise.all([
       service.getRates(),

@@ -9,16 +9,17 @@ import {
 } from '../common/money/currency';
 import { Dec, RATE_SCALE } from '../common/money/money';
 import { AppConfigService } from '../config/app-config.service';
-import { FxProviderKind } from '../config/env.validation';
 import { FxRateCache } from './fx-rate.cache';
 import { FxRateSnapshotEntity } from './fx-rate-snapshot.entity';
 import { FxQuote, ResolvedRates } from './fx.types';
-import { PRIMARY_FX_PROVIDER } from './providers/fx-rate-provider';
+import {
+  FALLBACK_FX_PROVIDER,
+  PRIMARY_FX_PROVIDER,
+} from './providers/fx-rate-provider';
 import type {
   FxRateProvider,
   UsdRateTable,
 } from './providers/fx-rate-provider';
-import { StaticRateProvider } from './providers/static-rate.provider';
 
 /** How long a fallback table is cached before we try the provider again. */
 const FALLBACK_CACHE_TTL_SECONDS = 30;
@@ -39,7 +40,7 @@ export class FxRatesService {
 
   constructor(
     @Inject(PRIMARY_FX_PROVIDER) private readonly primary: FxRateProvider,
-    private readonly fallback: StaticRateProvider,
+    @Inject(FALLBACK_FX_PROVIDER) private readonly fallback: FxRateProvider,
     private readonly cache: FxRateCache,
     @InjectRepository(FxRateSnapshotEntity)
     private readonly snapshots: Repository<FxRateSnapshotEntity>,
@@ -70,7 +71,7 @@ export class FxRatesService {
     });
     const resolved: ResolvedRates = {
       ...table,
-      source: this.isStaticMode() ? 'static' : 'live',
+      source: this.primary.source,
       stale: false,
     };
     await this.cache.set(resolved, this.config.fx.cacheTtlSeconds);
@@ -119,7 +120,7 @@ export class FxRatesService {
       ? { ...lastKnownGood, source: 'last-known-good', stale: true }
       : {
           ...(await this.fallback.fetchUsdRates()),
-          source: 'static',
+          source: this.fallback.source,
           stale: true,
         };
     await this.cache.set(resolved, FALLBACK_CACHE_TTL_SECONDS);
@@ -145,10 +146,6 @@ export class FxRatesService {
       );
       return null;
     }
-  }
-
-  private isStaticMode(): boolean {
-    return this.config.fx.provider === FxProviderKind.Static;
   }
 }
 

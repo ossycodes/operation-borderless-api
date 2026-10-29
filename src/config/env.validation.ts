@@ -1,15 +1,17 @@
 import { plainToInstance } from 'class-transformer';
+import type { LogLevel } from '@nestjs/common';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
-  IsOptional,
   IsString,
   IsUrl,
   Max,
   Min,
   validateSync,
 } from 'class-validator';
+import { LOG_LEVELS } from './log-levels';
 
 export enum NodeEnv {
   Development = 'development',
@@ -67,9 +69,8 @@ export class EnvironmentVariables {
   @IsBoolean()
   FX_REFRESH_JOB_ENABLED: boolean = true;
 
-  @IsOptional()
-  @IsString()
-  LOG_LEVEL?: string;
+  @IsIn(LOG_LEVELS)
+  LOG_LEVEL: LogLevel = 'log';
 }
 
 const toBoolean = (value: unknown): unknown => {

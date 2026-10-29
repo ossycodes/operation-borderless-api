@@ -6,7 +6,7 @@
 
 ```text
 docker compose up --build     # API on :3000, Swagger UI on :3000/docs
-yarn test                     # 94 unit + e2e tests against real Postgres & Redis
+yarn test                     # 116 unit + e2e tests against real Postgres & Redis
 ```
 
 ---
@@ -123,7 +123,7 @@ yarn test:cov     # with coverage
 - To use existing instances instead (for example CI services), set `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
 - E2E tests use a **fixed rate table** (`FX_PROVIDER=static`), so results are deterministic and no network access is needed.
 
-What is covered (94 tests):
+What is covered (116 tests):
 
 | Area | Highlights |
 | --- | --- |
@@ -133,7 +133,9 @@ What is covered (94 tests):
 | Deposits | Replay returns the same response with no double credit; key reuse with a different payload → 422; **10 concurrent duplicates → credited once**; 20 parallel `0.1` deposits sum to exactly `2.000000` |
 | Swaps | Exact conversions and rounding; overdraft → 422 with details; **10 concurrent swaps on one balance never overdraw** |
 | Transfers | Same and cross currency; **30 simultaneous opposite-direction transfers, no deadlock, no lost update** |
-| History | Newest first, every filter, cursor pagination with no gaps or duplicates |
+| History | Newest first, every filter, cursor pagination with no gaps or duplicates; tampered cursors rejected |
+| Idempotency | Replays skip FX quoting and the database transaction entirely; a failed plan claims no key |
+| Errors | Malformed JSON, unknown routes and unsafe `x-request-id` values all produce the standard envelope |
 | Ledger invariant | After every scenario, *sum of journal entries = stored balance* for every currency |
 
 ---
@@ -488,6 +490,7 @@ Every money-moving `POST` takes an `Idempotency-Key`. Keys are scoped per operat
 3. **Payload fingerprint.** A SHA-256 of the canonicalised request (route parameters and body, key-order independent) is stored with the key. Reusing a key with a different payload returns `422 IDEMPOTENCY_KEY_REUSED`.
 4. **Failures are not stored.** If a swap fails with `INSUFFICIENT_FUNDS`, everything rolls back, including the key. The client can top up and **retry with the same key**.
 5. Replays return the original status code and body plus `Idempotent-Replayed: true`.
+6. **Replays never re-plan.** The key is checked *before* the FX quote is fetched, so a retry returns the stored response even if rates have since moved (it can never flip to `AMOUNT_TOO_SMALL`, for example), and costs one indexed read.
 
 ### Concurrency
 
@@ -532,7 +535,7 @@ src/
 │   ├── money/                   # Money value object, Currency catalogue, @IsPositiveAmount
 │   ├── errors/                  # DomainError hierarchy (code + HTTP status)
 │   ├── filters/                 # single error envelope
-│   └── middleware/              # x-request-id propagation
+│   └── middleware/              # x-request-id propagation, access log
 ├── database/                    # TypeORM options + hand-written migrations
 ├── redis/  queue/               # ioredis client, BullMQ root
 ├── fx/                          # providers (Strategy), rate service (Chain of Responsibility),
@@ -541,14 +544,15 @@ src/
 ├── ledger/                      # transactions + journal entities, LedgerService (sole balance writer)
 ├── idempotency/                 # exactly-once executor + Idempotency-Key decorator
 ├── payments/                    # use cases: deposits, swaps, transfers (one service each)
+│                                #   + PaymentProcessor (shared idempotent posting template)
 └── transactions/                # read side: history + lookup
 ```
 
 Design choices:
 
-- **Thin controllers, one service per use case** (`DepositsService`, `SwapsService`, `TransfersService`).
+- **Thin controllers, one service per use case** (`DepositsService`, `SwapsService`, `TransfersService`). Each use case only decides *what* to post and returns a plan; **`PaymentProcessor`** (template method) owns *how*: replay check, plan outside any transaction, then claim the key and post in one unit of work.
 - **Single writer for balances.** Every money movement goes through `LedgerService.post()`, which uses a unit of work (`EntityManager`) passed in by the idempotency executor.
-- **Strategy pattern** for FX providers, selected once at the composition root by `FX_PROVIDER`.
+- **Strategy pattern** for FX providers. Each provider declares its own rate source (`live` / `static`); the primary and the last-resort fallback are bound to injection tokens once, at the composition root (`FxModule`). `FxRatesService` depends only on the `FxRateProvider` abstraction, so adding a provider never touches it.
 - **Domain errors** carry a stable machine-readable `code` and are mapped to HTTP status in one global filter, so domain code never imports HTTP concepts.
 - **Response DTOs** decouple the API from ORM entities, and **config is validated at boot**, so the app refuses to start with bad configuration.
 - **Tests run against the real stack:** the same `AppModule` and `configureApp()` as production, with real Postgres and Redis.
@@ -579,7 +583,7 @@ Design choices:
 | Outbox and webhooks | A transactional outbox table plus a BullMQ worker to publish `transaction.completed` events and notify users reliably. |
 | Hot-wallet contention | Row locks serialise per balance, which is correct but caps throughput for a single very hot wallet. At scale I'd look at sharded sub-balances or batched postings. |
 | Stale-rate policy | Swaps are allowed on `last-known-good` rates and the staleness is recorded. With more time I'd add a maximum-age policy (for example, reject swaps if rates are older than N minutes) and a second live provider before falling back to snapshots. |
-| Observability | Structured JSON logs (pino) with request IDs, Prometheus metrics (posting latency, lock wait, FX source mix), OpenTelemetry tracing, Bull Board for the queue. |
+| Observability | Today: an access log line per request (method, path, status, latency, `x-request-id`) and a validated `LOG_LEVEL`. Next: structured JSON logs (pino), Prometheus metrics (posting latency, lock wait, FX source mix), OpenTelemetry tracing, Bull Board for the queue. |
 | Recipient lookup | Send by email or phone (resolving to a wallet ID), with a confirmation step showing the recipient. |
 | Postman collection | The OpenAPI spec can be imported straight into Postman or Insomnia. |
 
