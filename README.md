@@ -6,7 +6,7 @@
 
 ```text
 docker compose up --build     # API on :3000, Swagger UI on :3000/docs
-yarn test                     # 116 unit + e2e tests against real Postgres & Redis
+yarn test                     # 123 unit + e2e tests against real Postgres & Redis
 ```
 
 ---
@@ -64,6 +64,7 @@ MongoDB has multi-document transactions, but row locks, `CHECK` constraints and 
 | Use | Why it earns its place |
 | --- | --- |
 | **Redis: shared FX rate cache** | With N API replicas, every instance quotes from *the same* rate table (consistent prices), and the provider is called once per TTL instead of once per instance. If Redis fails, the cache counts as a miss, never as an error. |
+| **Redis: rate-limit counters** | One budget per client *across the cluster*, not one per replica. A single Lua script increments the window and sets the block atomically. If Redis fails, the limiter **fails open** (logs and allows) rather than taking the API down. |
 | **BullMQ: repeatable FX refresh job** | The scheduler is keyed in Redis, so the refresh runs **once per interval across the whole cluster**, not once per replica. Provider failures are **retried with exponential backoff**. |
 | ❌ *Not* Redis for idempotency or balances | Idempotency keys must commit atomically *with* the ledger write. If they were in Redis, a crash between the two writes could move money without storing the key, or the reverse. They stay in Postgres. |
 
@@ -123,7 +124,7 @@ yarn test:cov     # with coverage
 - To use existing instances instead (for example CI services), set `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
 - E2E tests use a **fixed rate table** (`FX_PROVIDER=static`), so results are deterministic and no network access is needed.
 
-What is covered (116 tests):
+What is covered (123 tests):
 
 | Area | Highlights |
 | --- | --- |
@@ -136,6 +137,7 @@ What is covered (116 tests):
 | History | Newest first, every filter, cursor pagination with no gaps or duplicates; tampered cursors rejected |
 | Idempotency | Replays skip FX quoting and the database transaction entirely; a failed plan claims no key |
 | Errors | Malformed JSON, unknown routes and unsafe `x-request-id` values all produce the standard envelope |
+| Rate limiting | Budget headers, `429 RATE_LIMITED` with `Retry-After`, tighter write budget, per-client isolation, `/health` exempt, fail-open when Redis is down |
 | Ledger invariant | After every scenario, *sum of journal entries = stored balance* for every currency |
 
 ---
@@ -149,6 +151,7 @@ Base URL: `http://localhost:3000/api/v1`. Full reference: [`docs/openapi.json`](
 - **Amounts are decimal strings** (`"150.50"`), never JSON numbers, with up to 6 decimal places. Responses always use the canonical 6-dp form (`"150.500000"`). Rates use 12 dp.
 - **Every money-moving `POST` requires an `Idempotency-Key` header** (8–255 printable characters; a UUID is ideal). A retry with the same key and payload returns the original response with `Idempotent-Replayed: true`.
 - **Errors** share one envelope: `{ error: { code, message, details? }, statusCode, path, timestamp, requestId }`. Every response carries an `x-request-id`.
+- **Rate limits** apply per client IP and per endpoint, in a fixed window (`RATE_LIMIT_WINDOW_SECONDS`, default 60 s): `RATE_LIMIT_MAX_REQUESTS` (default 300) for any request, and a tighter `RATE_LIMIT_MAX_WRITES` (default 60) for `POST`s. Responses carry `X-RateLimit-Limit` / `-Remaining` / `-Reset` (with a `-writes` suffix for the write budget). Over the limit returns `429 RATE_LIMITED` with `Retry-After`. `/health` is exempt. Behind a load balancer, set `TRUST_PROXY_HOPS` so the real client IP is used.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -393,6 +396,7 @@ GET /api/v1/fx/rates?from=cNGN  # filter by from and/or to
 | 422 | `INSUFFICIENT_FUNDS` | Operation would make a balance negative |
 | 422 | `IDEMPOTENCY_KEY_REUSED` | Same key, different payload |
 | 422 | `SAME_CURRENCY_SWAP` / `SELF_TRANSFER` / `AMOUNT_TOO_SMALL` | Business-rule violations |
+| 429 | `RATE_LIMITED` | Client exceeded its request or write budget; see `Retry-After` |
 
 ---
 
@@ -538,6 +542,7 @@ src/
 │   └── middleware/              # x-request-id propagation, access log
 ├── database/                    # TypeORM options + hand-written migrations
 ├── redis/  queue/               # ioredis client, BullMQ root
+├── rate-limit/                  # global ThrottlerGuard + Redis-backed storage (Lua, fail-open)
 ├── fx/                          # providers (Strategy), rate service (Chain of Responsibility),
 │                                #   Redis cache, BullMQ refresh job, GET /fx/rates
 ├── wallets/                     # wallet creation, balances, USD valuation
@@ -574,7 +579,7 @@ Design choices:
 
 | Left out | Why / what I'd do |
 | --- | --- |
-| Authentication and authorisation | Out of scope per the brief. Next step: API keys or JWT, wallet ownership checks, per-wallet rate limiting (`@nestjs/throttler` backed by Redis). |
+| Authentication and authorisation | Out of scope per the brief. Next step: API keys or JWT and wallet ownership checks. Rate limiting is per IP today (Redis-backed `@nestjs/throttler`); with authentication it would key on the principal instead. |
 | Quote-and-lock FX | Add `POST /fx/quotes` returning a short-lived, server-signed quote ID, so a client can see the exact rate and execute against it (with slippage protection), instead of execution-time rates. |
 | Fees and spread | Add a configurable spread per pair, posted to a revenue account. |
 | Full double-entry with system accounts | Model a treasury/liquidity wallet per currency so *every* posting balances to zero across accounts, including deposits and swaps. The journal and the `LedgerService` interface were designed with this in mind. |

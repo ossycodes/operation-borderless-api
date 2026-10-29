@@ -71,6 +71,27 @@ export class EnvironmentVariables {
 
   @IsIn(LOG_LEVELS)
   LOG_LEVEL: LogLevel = 'log';
+
+  /** Fixed window shared by both rate limits. */
+  @IsInt()
+  @Min(1)
+  RATE_LIMIT_WINDOW_SECONDS: number = 60;
+
+  /** Requests per client per window, per route (reads and writes). */
+  @IsInt()
+  @Min(1)
+  RATE_LIMIT_MAX_REQUESTS: number = 300;
+
+  /** Money-moving POSTs per client per window, per endpoint. */
+  @IsInt()
+  @Min(1)
+  RATE_LIMIT_MAX_WRITES: number = 60;
+
+  /** Reverse proxies in front of the API; 0 trusts only the socket address. */
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  TRUST_PROXY_HOPS: number = 0;
 }
 
 const toBoolean = (value: unknown): unknown => {
