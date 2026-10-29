@@ -1,18 +1,17 @@
-import { join } from 'node:path';
 import { DataSourceOptions } from 'typeorm';
+import { MIGRATIONS } from './migrations';
 
 /**
- * Shared by the Nest runtime and the TypeORM CLI so both always agree on
- * where entities and migrations live.
+ * Shared by the Nest runtime, the TypeORM CLI and the test harness so all of
+ * them agree on the connection and migration set. Entities are registered by
+ * Nest (`autoLoadEntities`); the schema is owned by migrations only.
  */
 export function buildDataSourceOptions(url: string): DataSourceOptions {
   return {
     type: 'postgres',
     url,
-    entities: [join(__dirname, '..', '**', '*.entity.{ts,js}')],
-    migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
+    migrations: MIGRATIONS,
     migrationsTableName: 'schema_migrations',
-    // Schema is owned by hand-written migrations, never by entity sync.
     synchronize: false,
     extra: { max: 20 },
   };
