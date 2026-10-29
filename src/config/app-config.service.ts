@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, type LogLevel } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EnvironmentVariables, NodeEnv } from './env.validation';
 
@@ -32,6 +32,10 @@ export class AppConfigService {
 
   get redisUrl(): string {
     return this.get('REDIS_URL');
+  }
+
+  get logLevel(): LogLevel {
+    return this.get('LOG_LEVEL');
   }
 
   get runMigrations(): boolean {
