@@ -5,6 +5,7 @@ import { FxModule } from './fx/fx.module';
 import { HealthController } from './health/health.controller';
 import { PaymentsModule } from './payments/payments.module';
 import { QueueModule } from './queue/queue.module';
+import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RedisModule } from './redis/redis.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { WalletsModule } from './wallets/wallets.module';
@@ -15,6 +16,7 @@ import { WalletsModule } from './wallets/wallets.module';
     DatabaseModule,
     RedisModule,
     QueueModule,
+    RateLimitModule,
     FxModule,
     WalletsModule,
     PaymentsModule,

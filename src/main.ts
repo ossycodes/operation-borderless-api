@@ -12,7 +12,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(AppConfigService);
   app.useLogger(enabledLogLevels(config.logLevel));
-  configureApp(app);
+  configureApp(app, { trustProxyHops: config.trustProxyHops });
 
   SwaggerModule.setup('docs', app, buildOpenApiDocument(app), {
     jsonDocumentUrl: 'docs/openapi.json',

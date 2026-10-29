@@ -42,6 +42,18 @@ export class AppConfigService {
     return this.get('DB_RUN_MIGRATIONS');
   }
 
+  get trustProxyHops(): number {
+    return this.get('TRUST_PROXY_HOPS');
+  }
+
+  get rateLimit() {
+    return {
+      windowSeconds: this.get('RATE_LIMIT_WINDOW_SECONDS'),
+      maxRequests: this.get('RATE_LIMIT_MAX_REQUESTS'),
+      maxWrites: this.get('RATE_LIMIT_MAX_WRITES'),
+    };
+  }
+
   get fx() {
     return {
       provider: this.get('FX_PROVIDER'),
