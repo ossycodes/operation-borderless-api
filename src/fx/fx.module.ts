@@ -12,7 +12,10 @@ import {
   FxRefreshProcessor,
   FxRefreshScheduler,
 } from './fx-refresh.job';
-import { PRIMARY_FX_PROVIDER } from './providers/fx-rate-provider';
+import {
+  FALLBACK_FX_PROVIDER,
+  PRIMARY_FX_PROVIDER,
+} from './providers/fx-rate-provider';
 import { OpenErApiProvider } from './providers/open-er-api.provider';
 import { StaticRateProvider } from './providers/static-rate.provider';
 
@@ -35,6 +38,7 @@ import { StaticRateProvider } from './providers/static-rate.provider';
         fixed: StaticRateProvider,
       ) => (config.fx.provider === FxProviderKind.Static ? fixed : live),
     },
+    { provide: FALLBACK_FX_PROVIDER, useExisting: StaticRateProvider },
     FxRateCache,
     FxRatesService,
     FxRefreshScheduler,

@@ -1,6 +1,9 @@
 import Decimal from 'decimal.js';
 import { Currency } from '../common/money/currency';
-import { UsdRateTable } from './providers/fx-rate-provider';
+import type {
+  ProviderRateSource,
+  UsdRateTable,
+} from './providers/fx-rate-provider';
 
 /**
  * Where a rate table came from:
@@ -8,7 +11,7 @@ import { UsdRateTable } from './providers/fx-rate-provider';
  * - `last-known-good`: provider failed; latest persisted snapshot is used
  * - `static`: fixed reference table (offline mode or nothing else available)
  */
-export type RateSource = 'live' | 'last-known-good' | 'static';
+export type RateSource = ProviderRateSource | 'last-known-good';
 
 export interface ResolvedRates extends UsdRateTable {
   source: RateSource;

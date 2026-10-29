@@ -22,6 +22,7 @@ export const STATIC_RATES_AS_OF = '2026-10-01T00:00:00.000Z';
 @Injectable()
 export class StaticRateProvider implements FxRateProvider {
   readonly name = 'static-table';
+  readonly source = 'static';
 
   fetchUsdRates(): Promise<UsdRateTable> {
     return Promise.resolve({
